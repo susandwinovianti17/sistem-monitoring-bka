@@ -6,8 +6,7 @@ from django.dispatch import receiver
 # --- MODEL PROFILE (UNTUK ROLE USER) ---
 class Profile(models.Model):
     ROLE_CHOICES = [
-        ('admin', 'Admin'),
-        ('lead_it', 'Lead IT'),
+        ('hrd', 'HRD'),
         ('manager', 'Manager'),
         ('karyawan', 'Karyawan'),
     ]
@@ -60,46 +59,21 @@ class Laporan(models.Model):
     prioritas = models.CharField(max_length=10, choices=PRIORITAS_CHOICES, default='Medium')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
     catatan_manager = models.TextField(blank=True, null=True)
-    deadline = models.DateTimeField(null=True, blank=True)
     bagian = models.CharField(max_length=50, null=True, blank=True)
-    deadline = models.DateTimeField(null=True, blank=True)
-    bagian = models.CharField(max_length=50, null=True, blank=True)
-    foto_progres = models.FileField(upload_to='progres_files/', null=True, blank=True)
-    lampiran_admin = models.FileField(upload_to='brief_files/', null=True, blank=True)
     
-    # --- UPDATE: Menggunakan DateTimeField agar mencatat Jam & Menit ---
+    # --- Manajemen Waktu ---
+    deadline = models.DateTimeField(null=True, blank=True)
     tanggal = models.DateTimeField(auto_now_add=True) # Waktu pembuatan awal
     updated_at = models.DateTimeField(auto_now=True)   # Waktu setiap kali di-update
-    
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
-    catatan_manager = models.TextField(blank=True, null=True)
-    
-    # --- PERBAIKAN: Diubah menjadi DateTimeField agar menerima input Due Date & Time dari React ---
-    deadline = models.DateTimeField(null=True, blank=True)
-    
-    bagian = models.CharField(max_length=50, null=True, blank=True)
-    
-    # --- PERBAIKAN: Diubah dari ImageField menjadi FileField agar mendukung PDF ---
-    foto_progres = models.FileField(upload_to='progres_files/', null=True, blank=True)
-    
-    # --- FIELD PROGRESS & ESTIMASI ---
-    persentase = models.IntegerField(default=0)
     estimasi_waktu = models.CharField(max_length=100, null=True, blank=True)
     
-    # --- FIELD PROGRESS KARYAWAN ---
-    foto_progres = models.FileField(upload_to='progres_files/', null=True, blank=True)
-    
-    # --- TAMBAHKAN FIELD BARU INI: Khusus mengunci berkas asli penugasan dari Admin ---
+    # --- File Lampiran & Tautan ---
     lampiran_admin = models.FileField(upload_to='brief_files/', null=True, blank=True)
-    
-    # --- TAMBAHAN BARU: Field Tautan Eksternal GitHub / Figma ---
+    foto_progres = models.FileField(upload_to='progres_files/', null=True, blank=True)
     link_project = models.URLField(max_length=500, null=True, blank=True)
     
+    # --- Progress ---
     persentase = models.IntegerField(default=0)
-    estimasi_waktu = models.CharField(max_length=100, null=True, blank=True)
-    
-    persentase = models.IntegerField(default=0)
-    estimasi_waktu = models.CharField(max_length=100, null=True, blank=True)
 
     @property
     def nama_karyawan(self):
@@ -113,5 +87,50 @@ class Laporan(models.Model):
     class Meta:
         verbose_name_plural = "Laporan Kinerja"
         ordering = ['-updated_at'] # Menampilkan yang terbaru di urutan teratas secara default
-        
+
+
+# --- MODEL NOTIFIKASI ---
+class Notifikasi(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifikasi')
+    laporan_terkait = models.ForeignKey(Laporan, on_delete=models.CASCADE, null=True, blank=True)
+    pesan = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Notifikasi untuk {self.user.username} - {self.pesan[:20]}"
+
+    class Meta:
+        verbose_name_plural = "Notifikasi"
+        ordering = ['-created_at']
+
+
+# --- SIGNALS (OTOMATISASI NOTIFIKASI DINAMIS UNTUK SEMUA ROLE) ---
+@receiver(post_save, sender=Laporan)
+def buat_notifikasi_sistem(sender, instance, created, **kwargs):
+    # KONDISI A: Jika tugas baru dibuat oleh HRD/Manager
+    if created:
+        # Kirim notifikasi tunggal ke karyawan yang ditugaskan
+        Notifikasi.objects.create(
+            user=instance.karyawan,
+            laporan_terkait=instance,
+            pesan=f"Anda menerima tugas baru: {instance.tugas[:30]}..."
+        )
     
+    # KONDISI B: Jika tugas di-update/diperbarui oleh Karyawan (misal: isi progres, ganti persentase)
+    else:
+        # Cari semua akun user yang bertindak sebagai HRD atau Manager di sistem
+        para_atasan = User.objects.filter(profile__role__in=['hrd', 'manager'])
+        
+        # Ambil nama karyawan yang melakukan update
+        nama_karyawan = instance.nama_karyawan
+        
+        # Kirimkan pesan notifikasi ke setiap HRD dan Manager secara massal
+        for atasan in para_atasan:
+            # Cegah pengiriman notifikasi jika yang melakukan update kebetulan adalah atasan itu sendiri
+            if atasan != instance.karyawan:
+                Notifikasi.objects.create(
+                    user=atasan,
+                    laporan_terkait=instance,
+                    pesan=f"{nama_karyawan} memperbarui tugas '{instance.tugas[:20]}...' (Progres: {instance.persentase}%, Status: {instance.status})"
+                )

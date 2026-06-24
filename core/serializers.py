@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Laporan, Profile
+# Pastikan ada 'Notifikasi' di daftar import ini
+from .models import Laporan, Profile, Notifikasi
 
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source='profile.role', read_only=True)
@@ -85,30 +86,19 @@ class LaporanSerializer(serializers.ModelSerializer):
     nama_karyawan = serializers.ReadOnlyField()
     foto_progres_url = serializers.SerializerMethodField()
     lampiran_admin_url = serializers.SerializerMethodField()
+    
+    link_tautan = serializers.CharField(source='link_project', required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = Laporan
         fields = [
-            'id', 
-            'karyawan', 
-            'nama_karyawan', 
-            'tugas', 
-            'kategori', 
-            'prioritas',
-            'persentase',      
-            'estimasi_waktu', 
-            'tanggal', 
-            'deadline',
-            'bagian', 
-            'status', 
-            'catatan_manager',
-            'foto_progres',     # File progress karyawan
-            'foto_progres_url', # URL progress karyawan
-            'lampiran_admin',    # File brief/tugas asli dari admin
-            'lampiran_admin_url', # FIXED: Tanda koma sudah ditambahkan di sini
-            'link_project'
+            'id', 'karyawan', 'nama_karyawan', 'tugas', 'kategori', 'prioritas',
+            'persentase', 'estimasi_waktu', 'tanggal', 'updated_at', 'deadline',
+            'bagian', 'status', 'catatan_manager', 'foto_progres', 'foto_progres_url', 
+            'lampiran_admin', 'lampiran_admin_url', 'link_project', 'link_tautan'
         ]
 
+    # PASTIKAN DUA FUNGSI DI BAWAH INI MENJOROK KE DALAM (INDEENTASI 4 SPASI)
     def get_foto_progres_url(self, obj):
         if obj.foto_progres:
             request = self.context.get('request')
@@ -117,7 +107,6 @@ class LaporanSerializer(serializers.ModelSerializer):
             return obj.foto_progres.url
         return None
 
-    # Fungsi pembuat URL absolut lampiran tugas admin
     def get_lampiran_admin_url(self, obj):
         if obj.lampiran_admin:
             request = self.context.get('request')
